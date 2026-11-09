@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>キャラクター投擲シミュレーション</title>
+    <style>
+        body { margin: 0; padding: 0; background-color: #e6a76a; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: sans-serif; }
+        canvas { background-color: #f7bd83; box-shadow: 0 4px 10px rgba(0,0,0,0.2); border-radius: 8px; cursor: pointer; }
+    </style>
+</head>
+<body>
+<canvas id="simCanvas" width="500" height="600"></canvas>
+<script>
+const canvas = document.getElementById('simCanvas');
+const ctx = canvas.getContext('2d');
+const GRAVITY = 0.4;
+
+const character = {
+    x: canvas.width / 2, y: canvas.height + 200, vx: 0, vy: 0, width: 180, height: 180, isLoaded: false, image: new Image()
+};
+
+// 【重要】同じフォルダ内の画像を直接読み込むように変更（CORSエラーを完全回避）
+character.image.src = 'character.png';
+character.image.onload = () => { character.isLoaded = true; };
+
+function launchCharacter() {
+    const padding = character.width / 2;
+    character.x = padding + Math.random() * (canvas.width - padding * 2);
+    character.y = canvas.height + padding; 
+    character.vx = (Math.random() - 0.5) * 5; 
+    character.vy = -13 - Math.random() * 5; // 高さランダム
+}
+
+canvas.addEventListener('touchstart', (e) => { e.preventDefault(); launchCharacter(); }, false);
+canvas.addEventListener('mousedown', () => { launchCharacter(); });
+
+function update() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (character.y <= canvas.height + 250) { 
+        character.vy += GRAVITY; character.x += character.vx; character.y += character.vy;
+    }
+    if (character.isLoaded) {
+        // もともと背景が白い画像なので、ここで自動透過処理をしながら描画
+        // （同じサーバー内から読み込むためエラーになりません）
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = character.image.width; tempCanvas.height = character.image.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.drawImage(character.image, 0, 0);
+        const imgData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+        const data = imgData.data;
+        for (let i = 0; i < data.length; i += 4) {
+            if (data[i] > 240 && data[i+1] > 240 && data[i+2] > 240) data[i+3] = 0;
+        }
+        tempCtx.putImageData(imgData, 0, 0);
+        ctx.drawImage(tempCanvas, character.x - character.width / 2, character.y - character.height / 2, character.width, character.height);
+    }
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'; ctx.font = '20px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('画面をタップして投げ上げる', canvas.width / 2, 40);
+    requestAnimationFrame(update);
+}
+update();
+</script>
+</body>
+</html>
