@@ -15,21 +15,70 @@
 const canvas = document.getElementById('simCanvas');
 const ctx = canvas.getContext('2d');
 const GRAVITY = 0.4;
+const RARE_CHANCE = 1 / 256; // ran.png に変わる確率
 
-const character = {
-    x: canvas.width / 2, y: canvas.height + 200, vx: 0, vy: 0, width: 180, height: 180, isLoaded: false, image: new Image()
+// 画像を読み込み、白背景を透過処理したcanvasを一度だけ作って保存する
+function loadSprite(src) {
+    const sprite = { canvas: null, isLoaded: false };
+    const img = new Image();
+    img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const cctx = c.getContext('2d');
+        cctx.drawImage(img, 0, 0);
+        const imgData = cctx.getImageData(0, 0, c.width, c.height);
+        const data = imgData.data;
+        for (let i = 0; i < data.length; i += 4) {
+            if (data[i] > 240 && data[i + 1] > 240 && data[i + 2] > 240) data[i + 3] = 0;
+        }
+        cctx.putImageData(imgData, 0, 0);
+        sprite.canvas = c;
+        sprite.isLoaded = true;
+    };
+    img.src = src;
+    return sprite;
+}
+
+const sprites = {
+    chen: loadSprite('chen.png'),
+    ran: loadSprite('ran.png')
 };
 
-// 【重要】同じフォルダ内の画像を直接読み込むように変更（CORSエラーを完全回避）
-character.image.src = 'chen.png';
-character.image.onload = () => { character.isLoaded = true; };
+const character = {
+    x: canvas.width / 2, y: canvas.height + 200, vx: 0, vy: 0,
+    width: 180, height: 180,
+    angle: 0, spin: 0,
+    sprite: sprites.chen
+};
 
 function launchCharacter() {
     const padding = character.width / 2;
-    character.x = padding + Math.random() * (canvas.width - padding * 2);
-    character.y = canvas.height + padding; 
-    character.vx = (Math.random() - 0.5) * 5; 
-    character.vy = -13 - Math.random() * 5; // 高さランダム
+    const groundY = canvas.height + padding; // 画面外の発射位置
+
+    // 画面内にいる間にタップされたら、その場から再ジャンプする（消えない）
+    const onScreen = character.y < canvas.height + padding * 0.5;
+    if (!onScreen) {
+        character.x = padding + Math.random() * (canvas.width - padding * 2);
+        character.y = groundY;
+        character.angle = 0;
+    }
+    character.vx = (Math.random() - 0.5) * 5;
+    character.vy = -16 - Math.random() * 5;
+
+    // 1/256 で ran.png に変更
+    character.sprite = (Math.random() < RARE_CHANCE) ? sprites.ran : sprites.chen;
+
+    // 現在位置から発射位置に戻るまでのフレーム数
+    const t = (-character.vy + Math.sqrt(character.vy * character.vy - 2 * GRAVITY * (character.y - groundY))) / GRAVITY;
+
+    // 回転数ランダム（1〜5回転、向きもランダム）。着地時にちょうど正立する
+    let a = character.angle % (Math.PI * 2);
+    if (a > Math.PI) a -= Math.PI * 2;
+    if (a < -Math.PI) a += Math.PI * 2;
+    const rotations = 1 + Math.floor(Math.random() * 5);
+    const direction = Math.random() < 0.5 ? -1 : 1;
+    character.angle = a;
+    character.spin = (direction * rotations * Math.PI * 2 - a) / t;
 }
 
 canvas.addEventListener('touchstart', (e) => { e.preventDefault(); launchCharacter(); }, false);
@@ -37,23 +86,18 @@ canvas.addEventListener('mousedown', () => { launchCharacter(); });
 
 function update() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (character.y <= canvas.height + 250) { 
-        character.vy += GRAVITY; character.x += character.vx; character.y += character.vy;
+    if (character.y <= canvas.height + 250) {
+        character.vy += GRAVITY;
+        character.x += character.vx;
+        character.y += character.vy;
+        character.angle += character.spin;
     }
-    if (character.isLoaded) {
-        // もともと背景が白い画像なので、ここで自動透過処理をしながら描画
-        // （同じサーバー内から読み込むためエラーになりません）
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = character.image.width; tempCanvas.height = character.image.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        tempCtx.drawImage(character.image, 0, 0);
-        const imgData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-        const data = imgData.data;
-        for (let i = 0; i < data.length; i += 4) {
-            if (data[i] > 240 && data[i+1] > 240 && data[i+2] > 240) data[i+3] = 0;
-        }
-        tempCtx.putImageData(imgData, 0, 0);
-        ctx.drawImage(tempCanvas, character.x - character.width / 2, character.y - character.height / 2, character.width, character.height);
+    if (character.sprite.isLoaded) {
+        ctx.save();
+        ctx.translate(character.x, character.y);
+        ctx.rotate(character.angle);
+        ctx.drawImage(character.sprite.canvas, -character.width / 2, -character.height / 2, character.width, character.height);
+        ctx.restore();
     }
     ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'; ctx.font = '20px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('画面をタップして投げ上げる', canvas.width / 2, 40);
