@@ -16,6 +16,8 @@ const canvas = document.getElementById('simCanvas');
 const ctx = canvas.getContext('2d');
 const GRAVITY = 0.4;
 const RARE_CHANCE = 1 / 256; // ran.png に変わる確率
+const MAX_CHARACTERS = 100;  // 同時に表示できる最大数（負荷対策）
+const SIZE = 180;
 
 // 画像を読み込み、白背景を透過処理したcanvasを一度だけ作って保存する
 function loadSprite(src) {
@@ -44,41 +46,32 @@ const sprites = {
     ran: loadSprite('ran.png')
 };
 
-const character = {
-    x: canvas.width / 2, y: canvas.height + 200, vx: 0, vy: 0,
-    width: 180, height: 180,
-    angle: 0, spin: 0,
-    sprite: sprites.chen
-};
+// 画面内にいるキャラクターの一覧（タップするたびに増える）
+const characters = [];
 
 function launchCharacter() {
-    const padding = character.width / 2;
-    const groundY = canvas.height + padding; // 画面外の発射位置
+    if (characters.length >= MAX_CHARACTERS) return;
 
-    // 画面内にいる間にタップされたら、その場から再ジャンプする（消えない）
-    const onScreen = character.y < canvas.height + padding * 0.5;
-    if (!onScreen) {
-        character.x = padding + Math.random() * (canvas.width - padding * 2);
-        character.y = groundY;
-        character.angle = 0;
-    }
-    character.vx = (Math.random() - 0.5) * 5;
-    character.vy = -16 - Math.random() * 5;
+    const padding = SIZE / 2;
+    const groundY = canvas.height + padding;
+    const vy = -16 - Math.random() * 5; // 高さランダム
 
-    // 1/256 で ran.png に変更
-    character.sprite = (Math.random() < RARE_CHANCE) ? sprites.ran : sprites.chen;
-
-    // 現在位置から発射位置に戻るまでのフレーム数
-    const t = (-character.vy + Math.sqrt(character.vy * character.vy - 2 * GRAVITY * (character.y - groundY))) / GRAVITY;
-
-    // 回転数ランダム（1〜5回転、向きもランダム）。着地時にちょうど正立する
-    let a = character.angle % (Math.PI * 2);
-    if (a > Math.PI) a -= Math.PI * 2;
-    if (a < -Math.PI) a += Math.PI * 2;
+    // 回転数ランダム（1〜5回転、向きもランダム）
+    // 滞空時間 = 2*|vy|/重力 フレーム。その間にちょうど整数回転して着地する
     const rotations = 1 + Math.floor(Math.random() * 5);
     const direction = Math.random() < 0.5 ? -1 : 1;
-    character.angle = a;
-    character.spin = (direction * rotations * Math.PI * 2 - a) / t;
+    const flightFrames = 2 * Math.abs(vy) / GRAVITY;
+
+    characters.push({
+        x: padding + Math.random() * (canvas.width - padding * 2),
+        y: groundY,
+        vx: (Math.random() - 0.5) * 5,
+        vy: vy,
+        angle: 0,
+        spin: direction * rotations * Math.PI * 2 / flightFrames,
+        // 1/256 で ran.png に変更
+        sprite: (Math.random() < RARE_CHANCE) ? sprites.ran : sprites.chen
+    });
 }
 
 canvas.addEventListener('touchstart', (e) => { e.preventDefault(); launchCharacter(); }, false);
@@ -86,19 +79,29 @@ canvas.addEventListener('mousedown', () => { launchCharacter(); });
 
 function update() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (character.y <= canvas.height + 250) {
-        character.vy += GRAVITY;
-        character.x += character.vx;
-        character.y += character.vy;
-        character.angle += character.spin;
+
+    for (let i = characters.length - 1; i >= 0; i--) {
+        const ch = characters[i];
+        ch.vy += GRAVITY;
+        ch.x += ch.vx;
+        ch.y += ch.vy;
+        ch.angle += ch.spin;
+
+        // 落ちて画面の外に出たら削除
+        if (ch.vy > 0 && ch.y > canvas.height + SIZE / 2 + 50) {
+            characters.splice(i, 1);
+        }
     }
-    if (character.sprite.isLoaded) {
+
+    for (const ch of characters) {
+        if (!ch.sprite.isLoaded) continue;
         ctx.save();
-        ctx.translate(character.x, character.y);
-        ctx.rotate(character.angle);
-        ctx.drawImage(character.sprite.canvas, -character.width / 2, -character.height / 2, character.width, character.height);
+        ctx.translate(ch.x, ch.y);
+        ctx.rotate(ch.angle);
+        ctx.drawImage(ch.sprite.canvas, -SIZE / 2, -SIZE / 2, SIZE, SIZE);
         ctx.restore();
     }
+
     ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'; ctx.font = '20px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('画面をタップして投げ上げる', canvas.width / 2, 40);
     requestAnimationFrame(update);
